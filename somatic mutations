@@ -1,0 +1,141 @@
+###### This file containing codes used in GATK to call somatic mutations
+
+##Versions
+GATK:4.0.12.0/4.1.2.0
+samtools:1.9
+vcf2maf:1.6.16
+
+##Basis
+input_dir=your/path/to/bams/*.bam
+outdir=your/path/to/output
+
+
+
+for i in $input_dir
+do
+
+fn=`basename $i`
+sample=${fn%%.bam}
+
+##
+##Step One: Mark duplicates
+
+time gatk MarkDuplicates \
+--java-options "-Xmx4g" \
+-I $i \
+-O $outdir/${sample}.markdup.bam \
+-M $outdir/${sample}.marked_dup_metrics.txt
+
+samtools index $outdir/${sample}.markdup.bam 
+
+##
+##Step Two: Revise base qualities
+
+time gatk BaseRecalibrator \
+--java-options "-Xmx4g" \
+-I $outdir/${sample}.markdup.bam  \
+-R Homo_sapiens_assembly38.fasta \
+--known-sites Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+--known-sites 1000G_phase1.snps.high_confidence.hg38.vcf.gz \
+--known-sites dbsnp_146.hg38.vcf.gz \
+-O  $outdir/${sample}.baserecali.table 
+
+time $gatk ApplyBQSR \
+--java-options "-Xmx4g" \
+-R Homo_sapiens_assembly38.fasta \
+-I $outdir/${sample}.markdup.bam \
+--bqsr-recal-file $outdir/${sample}.baserecali.table \
+-O $outdir/${sample}.baserecali.bam
+
+samtools index ${outdir}/${sample}.baserecali.bam
+done
+
+##
+##Step Three: Create Panel of Normals
+
+    ######### Firstly, run Mutect2 only with matched samples(normal)
+    
+ normal_bam=your/path/to/normal/bams/*.bam
+ 
+ for i in $normal_bam
+ do
+ 
+ fn=`basename $i`
+ sample=${fn%%.bam}
+    
+time gatk Mutect2 \
+--java-options '-Xmx4g' \
+-R Homo_sapiens_assembly38.fasta \
+--disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
+-L ex_region.sort.bed \     ## a BED file containing sequencing loci
+-I $i \
+--tumor $sample \
+-O ${sample}_for_pon.vcf.gz
+
+done
+
+    ######### Secondly, run CreateSomaticPanelOfNormals  with all output of last step
+
+time gatk CreateSomaticPanelOfNormals
+--java-options '-Xmx4g' \
+-vcfs normal1_for_pon.vcf.gz \
+-vcfs normal2_for_pon.vcf.gz \
+-vcfs normal3_for_pon.vcf.gz \
+-vcfs normal4_for_pon.vcf.gz \
+-vcfs normal5_for_pon.vcf.gz \
+-vcfs normal6_for_pon.vcf.gz \
+-O PanelOfNormal.vcf.gz
+
+##
+##Step Four: Call somatic mutations with tumor samples (matched mode)
+
+time gatk Mutect2 \
+--java-options '-Xmx4g' \
+-R Homo_sapiens_assembly38.fasta \
+-I tumor.baserecali.bam \
+-I normal.baserecali.bam \
+-tumor tumor \
+-normal normal \
+-pon PanelOfNormal.vcf.gz \
+--germline-resource af-only-gnomad.hg38.vcf.gz  \
+--af-of-alleles-not-in-resource 0.0000025  \
+--disable-read-filter MateOnSameContigOrNoMappedMateReadFilter  \
+-L ex_region.sort.bed \
+-O tumor.vcf.gz \
+-bamout tumor.mutect2.bam
+
+##
+##Step Five: Filter mutations
+
+time gatk GetPileupSummaries \
+--java-options '-Xmx4g' \
+-I sample.baserecali.bam \
+-V small_exac_common_3.hg38.vcf.gz \
+-L ex_region.sort.bed \
+-O sample.pileup.table
+
+time gatk CalculateContamination \
+--java-options '-Xmx4g' \
+-I tumor.pileup.table \
+-matched normal.pileup.table \
+-O tumor.contamination.table
+
+time gatk FilterMutectCalls \
+--java-options '-Xmx4g' \
+-V tumor.vcf.gz \
+--contamination-table tumor.contamination.table \
+ -O tumor.filtered.vcf.gz
+
+##
+##Step Six: Annotate mutations
+
+perl vcf2maf.pl \
+--input-vcf tumor.filtered.vcf.gz \
+--output-maf tumor.maf \
+--tumor-id tumor \
+--normal-id normal \
+--ref-fasta Homo_sapiens_assembly38.fasta \ 
+--ncbi-build GRCh38 \
+--vep-path= ~/ensembl-vep-release-98/ 
+
+
