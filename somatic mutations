@@ -1,7 +1,7 @@
 ###### This file containing codes used in GATK to call somatic mutations
 
 ##Versions
-GATK:4.0.12.0/4.1.2.0
+GATK:4.0.12.0/4.1.2.0   (mostly 4.1.2.0, 4.0.12.0 was only used in Step Three: Create Panel of Normals from line 54 to 87
 samtools:1.9
 vcf2maf:1.6.16
 
@@ -23,8 +23,8 @@ sample=${fn%%.bam}
 time gatk MarkDuplicates \
 --java-options "-Xmx4g" \
 -I $i \
--O $outdir/${sample}.markdup.bam \
--M $outdir/${sample}.marked_dup_metrics.txt
+-O ${sample}.markdup.bam \
+-M ${sample}.marked_dup_metrics.txt
 
 samtools index $outdir/${sample}.markdup.bam 
 
@@ -33,19 +33,19 @@ samtools index $outdir/${sample}.markdup.bam
 
 time gatk BaseRecalibrator \
 --java-options "-Xmx4g" \
--I $outdir/${sample}.markdup.bam  \
+-I ${sample}.markdup.bam  \
 -R Homo_sapiens_assembly38.fasta \
 --known-sites Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
 --known-sites 1000G_phase1.snps.high_confidence.hg38.vcf.gz \
 --known-sites dbsnp_146.hg38.vcf.gz \
--O  $outdir/${sample}.baserecali.table 
+-O  ${sample}.baserecali.table 
 
 time $gatk ApplyBQSR \
 --java-options "-Xmx4g" \
 -R Homo_sapiens_assembly38.fasta \
--I $outdir/${sample}.markdup.bam \
+-I ${sample}.markdup.bam \
 --bqsr-recal-file $outdir/${sample}.baserecali.table \
--O $outdir/${sample}.baserecali.bam
+-O ${sample}.baserecali.bam
 
 samtools index ${outdir}/${sample}.baserecali.bam
 done
@@ -63,11 +63,11 @@ done
  fn=`basename $i`
  sample=${fn%%.bam}
     
-time gatk Mutect2 \
+time gatk(version=4.0.12.0) Mutect2 \
 --java-options '-Xmx4g' \
 -R Homo_sapiens_assembly38.fasta \
 --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
--L ex_region.sort.bed \     ## a BED file containing sequencing loci
+-L ex_region.sort.bed \     ## a BED file containing sequencing loci, provided by company & could be downloaded in laveny/MPLC_WES/supplementaries
 -I $i \
 --tumor $sample \
 -O ${sample}_for_pon.vcf.gz
@@ -76,7 +76,7 @@ done
 
     ######### Secondly, run CreateSomaticPanelOfNormals  with all output of last step
 
-time gatk CreateSomaticPanelOfNormals
+time gatk(version=4.0.12.0) CreateSomaticPanelOfNormals
 --java-options '-Xmx4g' \
 -vcfs normal1_for_pon.vcf.gz \
 -vcfs normal2_for_pon.vcf.gz \
@@ -85,6 +85,8 @@ time gatk CreateSomaticPanelOfNormals
 -vcfs normal5_for_pon.vcf.gz \
 -vcfs normal6_for_pon.vcf.gz \
 -O PanelOfNormal.vcf.gz
+
+  ######P.S we met problems when runninng GenomicsDBImport in new version 4.1.2.0 thus we used old PanelOfNormal.vcf.gz ran in version 4.0.12.0 which was said OK
 
 ##
 ##Step Four: Call somatic mutations with tumor samples (matched mode)
@@ -102,7 +104,7 @@ time gatk Mutect2 \
 --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter  \
 -L ex_region.sort.bed \
 -O tumor.vcf.gz \
--bamout tumor.mutect2.bam
+-bamout $outdir/tumor.mutect2.bam
 
 ##
 ##Step Five: Filter mutations
@@ -129,13 +131,19 @@ time gatk FilterMutectCalls \
 ##
 ##Step Six: Annotate mutations
 
+##decompress the filted .vcf files first
+  gunzip *.filtered.vcf.gz
+ 
 perl vcf2maf.pl \
---input-vcf tumor.filtered.vcf.gz \
+--input-vcf tumor.filtered.vcf \
 --output-maf tumor.maf \
 --tumor-id tumor \
 --normal-id normal \
 --ref-fasta Homo_sapiens_assembly38.fasta \ 
 --ncbi-build GRCh38 \
 --vep-path= ~/ensembl-vep-release-98/ 
+
+##
+##  Be aware that recently the .maf files we got were not extracted with only "FILTER==PASS"
 
 
