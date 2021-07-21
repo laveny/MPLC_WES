@@ -131,26 +131,26 @@ time gatk FilterMutectCalls \
 ##
 ##Step Six: Annotate mutations
 
-##decompress the filted .vcf files first
+##decompress the filted .vcf files first and select mutations PASS filter
+
   gunzip *.filtered.vcf.gz
- 
+  
+ for i in $input_dir
+ do
+
+fn=`basename $i`
+tumor=${fn%%.filtered.vcf}
+
+vcftools --vcf $i  --remove-filtered-all --stdout --recode > ${output_dir}/${tumor}.vcftools_selected.vcf
+done
+
 perl vcf2maf.pl \
---input-vcf tumor.filtered.vcf \
+--input-vcf tumor.vcftools_selected.vcf \
 --output-maf tumor.maf \
 --tumor-id tumor \
 --normal-id normal \
 --ref-fasta Homo_sapiens_assembly38.fasta \ 
 --ncbi-build GRCh38 \
 --vep-path= ~/ensembl-vep-release-98/ 
-
-##
-##  Be aware that recently the .maf files we got were not extracted with only "FILTER==PASS"
-
-##  It can be done with Rstudio:
-
-##  read files :  fn<-data.table::fread("tumor.maf")
-##  filter: fn <- fn[fn$FILTER=="PASS",]
-##  write files:  write.table(fn,"tumor.filtered.maf")
-
 
 
