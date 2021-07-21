@@ -146,4 +146,11 @@ perl vcf2maf.pl \
 ##
 ##  Be aware that recently the .maf files we got were not extracted with only "FILTER==PASS"
 
+##  It can be done with Rstudio:
+
+##  read files :  fn<-data.table::fread("tumor.maf")
+##  filter: fn <- fn[fn$FILTER=="PASS",]
+##  write files:  write.table(fn,"tumor.filtered.maf")
+
+
 
